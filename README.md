@@ -132,6 +132,7 @@ uv run python -m client.main
 | `GET`  | `/health` | 监控中心自身健康状态 |
 | `GET`  | `/nodes` | 查询所有节点当前状态 |
 | `GET`  | `/nodes/{server_id}` | 查询单个节点详细信息 |
+| `GET`  | `/status-page` | 简单的可视化状态页面（自动刷新） |
 
 ### 心跳请求示例
 

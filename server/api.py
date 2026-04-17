@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
@@ -128,3 +129,100 @@ def get_node(server_id: str, db: Session = Depends(get_db)):
     if not node:
         raise HTTPException(status_code=404, detail="node not found")
     return node.to_dict()
+
+
+@router.get("/status-page", response_class=HTMLResponse)
+def status_page(db: Session = Depends(get_db)):
+    nodes = db.query(Node).all()
+
+    def status_color(status: str) -> str:
+        if status == "UP":
+            return "#22c55e"  # green
+        elif status == "DOWN":
+            return "#ef4444"  # red
+        return "#f59e0b"  # yellow for SUSPECT
+
+    rows = ""
+    for n in nodes:
+        color = status_color(n.status)
+        rows += f"""
+        <tr>
+            <td>{n.server_id}</td>
+            <td>{n.hostname or "-"}</td>
+            <td style="color:{color};font-weight:bold;">{n.status}</td>
+            <td>{n.last_heartbeat_at or "Never"}</td>
+            <td>{"OK" if n.last_probe_ok else "Failed"}</td>
+        </tr>
+        """
+
+    if not rows:
+        rows = '<tr><td colspan="5" style="text-align:center;">No nodes registered yet</td></tr>'
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Heartbeat Monitor Status</title>
+        <meta http-equiv="refresh" content="5">
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                max-width: 900px;
+                margin: 40px auto;
+                padding: 0 20px;
+                background: #f8fafc;
+            }}
+            h1 {{
+                font-size: 1.5rem;
+                margin-bottom: 1rem;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                background: white;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                border-radius: 8px;
+                overflow: hidden;
+            }}
+            th, td {{
+                padding: 12px 16px;
+                text-align: left;
+                border-bottom: 1px solid #e2e8f0;
+            }}
+            th {{
+                background: #1e293b;
+                color: white;
+                font-weight: 500;
+            }}
+            tr:last-child td {{
+                border-bottom: none;
+            }}
+            .meta {{
+                color: #64748b;
+                font-size: 0.875rem;
+                margin-top: 1rem;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>Heartbeat Monitor Status</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Server ID</th>
+                    <th>Hostname</th>
+                    <th>Status</th>
+                    <th>Last Heartbeat</th>
+                    <th>Last Probe</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows}
+            </tbody>
+        </table>
+        <p class="meta">Auto-refreshes every 5 seconds</p>
+    </body>
+    </html>
+    """
+    return html

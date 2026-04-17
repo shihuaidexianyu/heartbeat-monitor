@@ -502,6 +502,15 @@ heartbeat_timeout == true AND probe_failed == true
 
 返回单个节点详细状态。
 
+## 12.5 GET /status-page
+
+返回一个简单的 HTML 可视化页面，展示所有节点当前状态。
+
+- 表格展示 `server_id`、`hostname`、`status`、`last_heartbeat_at`、`last_probe_ok`
+- 使用颜色区分状态（绿色=UP，红色=DOWN，黄色=SUSPECT）
+- 每 5 秒自动刷新
+- 无需额外依赖，直接由 FastAPI 内联返回
+
 ------
 
 ## 13. 主动探测设计
@@ -1053,7 +1062,7 @@ sequenceDiagram
 
 ### Server
 
-- FastAPI 提供 `/heartbeat`、`/health`、`/nodes`
+- FastAPI 提供 `/heartbeat`、`/health`、`/nodes`、`/status-page`
 - SQLite 存储节点与事件
 - 后台任务每 30 秒做主动探测与状态评估
 - SMTP 发送告警邮件（支持 465 SSL / 587 STARTTLS / 无 TLS）
