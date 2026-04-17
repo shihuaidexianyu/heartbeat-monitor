@@ -1,0 +1,10 @@
+[Unit]
+Description=Heartbeat Monitor Client
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=CLIENT_CONFIG=/opt/heartbeat-monitor/config/client.yaml
+Environment=PATH=/opt/heartbeat-monitor/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/heartbeat-monitor/.venv/bin/python -m client.main

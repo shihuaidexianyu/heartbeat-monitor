@@ -1,0 +1,17 @@
+[Unit]
+Description=Heartbeat Monitor Server
+After=network.target
+
+[Service]
+Type=simple
+User=heartbeat
+Group=heartbeat
+WorkingDirectory=/opt/heartbeat-monitor
+Environment=SERVER_CONFIG=/opt/heartbeat-monitor/config/server.yaml
+Environment=PATH=/opt/heartbeat-monitor/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/heartbeat-monitor/.venv/bin/python -m server.main
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

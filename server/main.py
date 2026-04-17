@@ -1,0 +1,105 @@
+import logging
+import os
+from contextlib import asynccontextmanager
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from fastapi import FastAPI
+
+from server.config import load_server_config
+from server.database import init_db, SessionLocal
+from server.models import Node
+from server.probe import run_probes
+from server.status_engine import evaluate_all_nodes
+
+config = load_server_config()
+
+# Setup logging
+logging.basicConfig(
+    level=getattr(logging, config.logging.level.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+    ],
+)
+if config.logging.file:
+    os.makedirs(os.path.dirname(config.logging.file), exist_ok=True)
+    logging.getLogger().addHandler(logging.FileHandler(config.logging.file))
+
+logger = logging.getLogger(__name__)
+
+
+def ensure_seed_nodes():
+    db = SessionLocal()
+    try:
+        # If no nodes exist, seed from environment or config
+        count = db.query(Node).count()
+        if count == 0:
+            logger.info("No nodes found in database, seeding demo nodes if configured")
+            # Optional: seed from a JSON file or env var for quickstart
+            seed = os.environ.get("MONITOR_NODES_SEED")
+            if seed:
+                import json
+                for item in json.loads(seed):
+                    node = Node(
+                        server_id=item["server_id"],
+                        hostname=item.get("hostname"),
+                        token_hash=item["token_hash"],
+                        probe_host=item["probe_host"],
+                        probe_port=item.get("probe_port", 22),
+                    )
+                    db.add(node)
+                db.commit()
+                logger.info("Seeded %d nodes", len(json.loads(seed)))
+    finally:
+        db.close()
+
+
+def probe_and_evaluate_job():
+    db = SessionLocal()
+    try:
+        run_probes(db)
+    finally:
+        db.close()
+    db = SessionLocal()
+    try:
+        evaluate_all_nodes(db)
+    finally:
+        db.close()
+
+
+scheduler = BackgroundScheduler()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    ensure_seed_nodes()
+    scheduler.add_job(
+        probe_and_evaluate_job,
+        "interval",
+        seconds=config.monitor.probe_interval_sec,
+        id="probe_and_evaluate",
+        replace_existing=True,
+    )
+    scheduler.start()
+    logger.info("Scheduler started")
+    yield
+    scheduler.shutdown()
+    logger.info("Scheduler stopped")
+
+
+app = FastAPI(title="Heartbeat Monitor", lifespan=lifespan)
+
+from server.api import router
+
+app.include_router(router)
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "server.main:app",
+        host=config.listen_host,
+        port=config.listen_port,
+        reload=False,
+    )
