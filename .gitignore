@@ -15,4 +15,4 @@ wheels/
 logs/
 .pytest_cache/
 uv.lock
-scripts/config/
+config/

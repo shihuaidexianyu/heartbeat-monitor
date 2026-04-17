@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 if ! command -v uv &> /dev/null; then
     echo "Error: uv is not installed. Please install uv first: https://docs.astral.sh/uv/"
     exit 1
@@ -60,8 +64,8 @@ _run_privileged() {
 read -rp "==> Install systemd timer for client? [y/N]: " INSTALL_SYSTEMD
 if [[ "$INSTALL_SYSTEMD" =~ ^[Yy]$ ]]; then
     WORKDIR="$(pwd)"
-    SERVICE_FILE="systemd/hb-client.service"
-    TIMER_FILE="systemd/hb-client.timer"
+    SERVICE_FILE="$PROJECT_ROOT/systemd/hb-client.service"
+    TIMER_FILE="$PROJECT_ROOT/systemd/hb-client.timer"
     SYSTEMD_DIR="/etc/systemd/system"
 
     if [[ ! -f "$SERVICE_FILE" || ! -f "$TIMER_FILE" ]]; then
