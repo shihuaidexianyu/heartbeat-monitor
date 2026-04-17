@@ -165,7 +165,7 @@ flowchart LR
 - Python 实现速度快
 - FastAPI 适合轻量接口服务
 - SQLite 对当前规模完全足够
-- 标准库即可完成邮件发送，依赖少
+- 标准库即可完成邮件发送，支持 SSL/STARTTLS，依赖少
 - systemd 易于部署与维护
 
 ## 6.2 Client 端
@@ -1056,8 +1056,9 @@ sequenceDiagram
 - FastAPI 提供 `/heartbeat`、`/health`、`/nodes`
 - SQLite 存储节点与事件
 - 后台任务每 30 秒做主动探测与状态评估
-- SMTP 发送告警邮件
+- SMTP 发送告警邮件（支持 465 SSL / 587 STARTTLS / 无 TLS）
 - 配置 `default_token`，支持客户端首次心跳自动注册
+- `test-smtp.py` 脚本用于快速测试邮件连通性
 
 ### Client
 

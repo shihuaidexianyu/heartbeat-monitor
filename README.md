@@ -32,6 +32,7 @@
 ├── setup-server.sh      # 服务端交互式配置 + systemd 安装 + 默认 Token 生成
 ├── setup-client.sh      # 客户端交互式配置 + systemd 安装
 ├── remove-service.sh    # 移除 systemd 服务
+├── test-smtp.py         # 测试 SMTP 配置
 ├── config/              # 生成的配置文件目录
 │   ├── server.yaml
 │   └── client.yaml
