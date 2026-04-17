@@ -43,6 +43,19 @@ EOF
 echo "==> Client config created at $CLIENT_CONFIG"
 echo ""
 
+# Helper for privilege escalation
+_run_privileged() {
+    if [[ "$EUID" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
+        sudo "$@"
+    elif command -v sudo &> /dev/null && [[ -t 0 ]]; then
+        sudo "$@"
+    else
+        return 1
+    fi
+}
+
 # Systemd setup
 read -rp "==> Install systemd timer for client? [y/N]: " INSTALL_SYSTEMD
 if [[ "$INSTALL_SYSTEMD" =~ ^[Yy]$ ]]; then
@@ -51,22 +64,31 @@ if [[ "$INSTALL_SYSTEMD" =~ ^[Yy]$ ]]; then
     TIMER_FILE="systemd/hb-client.timer"
     SYSTEMD_DIR="/etc/systemd/system"
 
-    if [[ -f "$SERVICE_FILE" ]]; then
+    if [[ ! -f "$SERVICE_FILE" || ! -f "$TIMER_FILE" ]]; then
+        echo "Warning: systemd unit files not found, skipping installation."
+    elif ! command -v systemctl &> /dev/null; then
+        echo "Warning: systemctl not found, skipping systemd installation."
+    else
+        TMP_SERVICE=$(mktemp)
         sed -e "s|/opt/heartbeat-monitor|$WORKDIR|g" \
-            -e "s|User=root|User=$(whoami)|g" \
-            "$SERVICE_FILE" | sudo tee "$SYSTEMD_DIR/hb-client.service" > /dev/null
-    else
-        echo "Warning: $SERVICE_FILE not found."
-    fi
+            -e "s|^User=root|User=$(id -un)|g" \
+            "$SERVICE_FILE" > "$TMP_SERVICE"
 
-    if [[ -f "$TIMER_FILE" ]]; then
-        sudo cp "$TIMER_FILE" "$SYSTEMD_DIR/hb-client.timer"
-        sudo systemctl daemon-reload
-        sudo systemctl enable hb-client.timer
-        echo "==> systemd timer installed and enabled."
-        echo "    Start it with: sudo systemctl start hb-client.timer"
-    else
-        echo "Warning: $TIMER_FILE not found, skipping timer installation."
+        if _run_privileged cp "$TMP_SERVICE" "$SYSTEMD_DIR/hb-client.service" && \
+           _run_privileged cp "$TIMER_FILE" "$SYSTEMD_DIR/hb-client.timer"; then
+            _run_privileged systemctl daemon-reload
+            _run_privileged systemctl enable hb-client.timer
+            echo "==> systemd timer installed and enabled."
+            echo "    Start it with: systemctl start hb-client.timer"
+        else
+            echo "Error: failed to copy systemd files to $SYSTEMD_DIR."
+            echo "Please run with root/sudo privileges, or install manually:"
+            echo "  sed -e 's|/opt/heartbeat-monitor|$WORKDIR|g' -e 's|^User=root|User=$(id -un)|g' $SERVICE_FILE | sudo tee $SYSTEMD_DIR/hb-client.service"
+            echo "  sudo cp $TIMER_FILE $SYSTEMD_DIR/hb-client.timer"
+            echo "  sudo systemctl daemon-reload"
+            echo "  sudo systemctl enable --now hb-client.timer"
+        fi
+        rm -f "$TMP_SERVICE"
     fi
 else
     echo "==> Skipping systemd installation."

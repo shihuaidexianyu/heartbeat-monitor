@@ -84,6 +84,19 @@ mkdir -p "$(dirname "$LOG_FILE")"
 echo "==> Server config created at $SERVER_CONFIG"
 echo ""
 
+# Helper for privilege escalation
+_run_privileged() {
+    if [[ "$EUID" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
+        sudo "$@"
+    elif command -v sudo &> /dev/null && [[ -t 0 ]]; then
+        sudo "$@"
+    else
+        return 1
+    fi
+}
+
 # Systemd setup
 read -rp "==> Install systemd service for server? [y/N]: " INSTALL_SYSTEMD
 if [[ "$INSTALL_SYSTEMD" =~ ^[Yy]$ ]]; then
@@ -91,17 +104,30 @@ if [[ "$INSTALL_SYSTEMD" =~ ^[Yy]$ ]]; then
     SERVICE_FILE="systemd/hb-server.service"
     SYSTEMD_DIR="/etc/systemd/system"
 
-    if [[ -f "$SERVICE_FILE" ]]; then
-        sed -e "s|/opt/heartbeat-monitor|$WORKDIR|g" \
-            -e "s|User=heartbeat|User=$(whoami)|g" \
-            -e "s|Group=heartbeat|Group=$(whoami)|g" \
-            "$SERVICE_FILE" | sudo tee "$SYSTEMD_DIR/hb-server.service" > /dev/null
-        sudo systemctl daemon-reload
-        sudo systemctl enable hb-server.service
-        echo "==> systemd service installed and enabled."
-        echo "    Start it with: sudo systemctl start hb-server.service"
-    else
+    if [[ ! -f "$SERVICE_FILE" ]]; then
         echo "Warning: $SERVICE_FILE not found, skipping systemd installation."
+    elif ! command -v systemctl &> /dev/null; then
+        echo "Warning: systemctl not found, skipping systemd installation."
+    else
+        TMP_SERVICE=$(mktemp)
+        sed -e "s|/opt/heartbeat-monitor|$WORKDIR|g" \
+            -e "s|^User=heartbeat|User=$(id -un)|g" \
+            -e "s|^Group=heartbeat|Group=$(id -gn)|g" \
+            "$SERVICE_FILE" > "$TMP_SERVICE"
+
+        if _run_privileged cp "$TMP_SERVICE" "$SYSTEMD_DIR/hb-server.service"; then
+            _run_privileged systemctl daemon-reload
+            _run_privileged systemctl enable hb-server.service
+            echo "==> systemd service installed and enabled."
+            echo "    Start it with: systemctl start hb-server.service"
+        else
+            echo "Error: failed to copy service file to $SYSTEMD_DIR."
+            echo "Please run with root/sudo privileges, or install manually:"
+            echo "  cp $TMP_SERVICE $SYSTEMD_DIR/hb-server.service"
+            echo "  systemctl daemon-reload"
+            echo "  systemctl enable --now hb-server.service"
+        fi
+        rm -f "$TMP_SERVICE"
     fi
 else
     echo "==> Skipping systemd installation."
