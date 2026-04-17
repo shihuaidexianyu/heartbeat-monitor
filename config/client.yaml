@@ -1,4 +1,0 @@
-server_url: "http://127.0.0.1:8000/heartbeat"
-server_id: "lab-server-1"
-token: "your-secret-token"
-timeout_sec: 5
