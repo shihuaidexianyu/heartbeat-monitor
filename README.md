@@ -70,6 +70,7 @@ uv sync
 ```
 
 脚本会：
+
 1. 自动运行 `uv sync`
 2. 交互式生成 `config/server.yaml`
 3. 询问是否自动安装 systemd service
@@ -93,6 +94,7 @@ Server 将监听 `0.0.0.0:8000`，并每 30 秒执行一次主动探测和状态
 ```
 
 脚本会：
+
 1. 自动运行 `uv sync`
 2. 交互式生成 `config/client.yaml`
 3. 询问是否自动安装 systemd timer
