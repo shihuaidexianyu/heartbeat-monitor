@@ -5,6 +5,7 @@ After=network.target
 [Service]
 Type=oneshot
 User=root
+WorkingDirectory=/opt/heartbeat-monitor
 Environment=CLIENT_CONFIG=/opt/heartbeat-monitor/config/client.yaml
 Environment=PATH=/opt/heartbeat-monitor/.venv/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/opt/heartbeat-monitor/.venv/bin/python -m client.main

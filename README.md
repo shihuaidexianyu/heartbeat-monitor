@@ -29,9 +29,9 @@
 │   ├── main.py          # 心跳脚本入口
 │   ├── config.py        # 客户端配置加载
 │   └── heartbeat.py     # 心跳上报逻辑
-├── scripts/             # 自动化配置脚本
-│   ├── setup-server.sh  # 服务端交互式配置 + systemd 安装
-│   └── setup-client.sh  # 客户端交互式配置 + systemd 安装
+├── setup-server.sh      # 服务端交互式配置 + systemd 安装
+├── setup-client.sh      # 客户端交互式配置 + systemd 安装
+├── remove-service.sh    # 移除 systemd 服务
 ├── config/              # 生成的配置文件目录
 │   ├── server.yaml
 │   └── client.yaml
@@ -66,7 +66,7 @@ uv sync
 运行交互式配置脚本，按提示输入监听地址、SMTP 邮箱和密码等信息：
 
 ```bash
-./scripts/setup-server.sh
+./setup-server.sh
 ```
 
 脚本会：
@@ -89,7 +89,7 @@ Server 将监听 `0.0.0.0:8000`，并每 30 秒执行一次主动探测和状态
 在每台被监控机器上运行：
 
 ```bash
-./scripts/setup-client.sh
+./setup-client.sh
 ```
 
 脚本会：
@@ -105,6 +105,16 @@ uv run python -m client.main
 ```
 
 如果安装了 systemd timer，心跳将每 30 秒自动发送一次。
+
+### 移除服务
+
+如需卸载 systemd 服务，运行：
+
+```bash
+./remove-service.sh
+```
+
+按提示选择是否移除 server service 和 client timer/service。
 
 ---
 

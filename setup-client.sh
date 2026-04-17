@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
 cd "$PROJECT_ROOT"
 
 if ! command -v uv &> /dev/null; then
@@ -70,6 +70,8 @@ if [[ "$INSTALL_SYSTEMD" =~ ^[Yy]$ ]]; then
 
     if [[ ! -f "$SERVICE_FILE" || ! -f "$TIMER_FILE" ]]; then
         echo "Warning: systemd unit files not found, skipping installation."
+        echo "  Checked: $SERVICE_FILE"
+        echo "  Checked: $TIMER_FILE"
     elif ! command -v systemctl &> /dev/null; then
         echo "Warning: systemctl not found, skipping systemd installation."
     else
