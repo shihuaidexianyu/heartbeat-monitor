@@ -63,10 +63,36 @@ def test_heartbeat_wrong_token():
     assert resp.status_code == 401
 
 
-def test_heartbeat_unknown_server():
+def test_heartbeat_auto_register():
+    import server.api
+    server.api.server_config.default_token = "test-default-token"
     payload = {
         "server_id": "lab-server-99",
-        "token": "secret-token-1",
+        "token": "test-default-token",
+        "hostname": "new-node",
+        "ip": "10.0.0.99",
+    }
+    resp = client.post("/heartbeat", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert "registered" in data["message"]
+
+    # Verify node was created
+    resp2 = client.get("/nodes/lab-server-99")
+    assert resp2.status_code == 200
+    node = resp2.json()
+    assert node["server_id"] == "lab-server-99"
+    assert node["status"] == "UP"
+
+
+def test_heartbeat_unknown_server():
+    import server.api
+    server.api.server_config.default_token = "test-default-token"
+    # Wrong token should be rejected for unknown server_id
+    payload = {
+        "server_id": "lab-server-999",
+        "token": "wrong-token",
     }
     resp = client.post("/heartbeat", json=payload)
     assert resp.status_code == 404
@@ -88,7 +114,7 @@ def test_get_node():
 
 
 def test_get_node_not_found():
-    resp = client.get("/nodes/lab-server-99")
+    resp = client.get("/nodes/lab-server-999")
     assert resp.status_code == 404
 
 

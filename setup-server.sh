@@ -53,12 +53,22 @@ SMTP_TO="${SMTP_TO:-$DEFAULT_SMTP_TO}"
 DB_PATH="${DB_PATH:-$DEFAULT_DB_PATH}"
 LOG_FILE="${LOG_FILE:-$DEFAULT_LOG_FILE}"
 
+DEFAULT_TOKEN="your-secret-token"
+
+echo ""
+read -rsp "Default client token (press Enter to use '$DEFAULT_TOKEN'): " INPUT_TOKEN
+echo ""
+if [[ -z "$INPUT_TOKEN" ]]; then
+    INPUT_TOKEN="$DEFAULT_TOKEN"
+fi
+
 SERVER_CONFIG="$CONFIG_DIR/server.yaml"
 
 echo "==> Generating server config at $SERVER_CONFIG..."
 cat > "$SERVER_CONFIG" <<EOF
 listen_host: "$LISTEN_HOST"
 listen_port: $LISTEN_PORT
+default_token: "$INPUT_TOKEN"
 
 smtp:
   host: "$SMTP_HOST"
@@ -141,5 +151,4 @@ fi
 echo ""
 echo "To start the server manually, run:"
 echo "  export SERVER_CONFIG=$SERVER_CONFIG"
-echo "  export MONITOR_NODES_SEED='[{\"server_id\":\"lab-server-1\",\"token_hash\":\"secret-token-1\",\"probe_host\":\"127.0.0.1\",\"probe_port\":22}]'"
 echo "  uv run python -m server.main"

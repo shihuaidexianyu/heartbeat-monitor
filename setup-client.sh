@@ -24,8 +24,8 @@ DEFAULT_TIMEOUT="5"
 echo ""
 echo "==> Please configure the client (press Enter to accept defaults):"
 read -rp "Server heartbeat URL [$DEFAULT_SERVER_URL]: " SERVER_URL
-read -rp "Server ID [$DEFAULT_SERVER_ID]: " SERVER_ID
-read -rsp "Token (default: your-secret-token): " TOKEN
+read -rp "Server ID (unique name for this machine) [$DEFAULT_SERVER_ID]: " SERVER_ID
+read -rsp "Token (from server setup output): " TOKEN
 echo ""
 read -rp "Request timeout in seconds [$DEFAULT_TIMEOUT]: " TIMEOUT
 

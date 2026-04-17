@@ -32,6 +32,7 @@ class LoggingConfig(BaseModel):
 class ServerConfig(BaseModel):
     listen_host: str = "0.0.0.0"
     listen_port: int = 8000
+    default_token: str = ""
     smtp: SMTPConfig | None = None
     monitor: MonitorConfig = MonitorConfig()
     database: DatabaseConfig = DatabaseConfig()

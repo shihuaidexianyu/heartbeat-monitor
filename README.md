@@ -29,7 +29,7 @@
 │   ├── main.py          # 心跳脚本入口
 │   ├── config.py        # 客户端配置加载
 │   └── heartbeat.py     # 心跳上报逻辑
-├── setup-server.sh      # 服务端交互式配置 + systemd 安装
+├── setup-server.sh      # 服务端交互式配置 + systemd 安装 + 默认 Token 生成
 ├── setup-client.sh      # 客户端交互式配置 + systemd 安装
 ├── remove-service.sh    # 移除 systemd 服务
 ├── config/              # 生成的配置文件目录
@@ -75,15 +75,18 @@ uv sync
 2. 交互式生成 `config/server.yaml`
 3. 询问是否自动安装 systemd service
 
-然后设置初始节点并启动服务：
+然后启动服务：
 
 ```bash
 export SERVER_CONFIG=config/server.yaml
-export MONITOR_NODES_SEED='[{"server_id":"lab-server-1","token_hash":"secret-token-1","probe_host":"127.0.0.1","probe_port":22}]'
 uv run python -m server.main
 ```
 
 Server 将监听 `0.0.0.0:8000`，并每 30 秒执行一次主动探测和状态评估。
+
+> **Token 初始化**：运行 `./setup-server.sh` 时，脚本会自动生成一个**默认 Token** 并写入 `config/server.yaml`。把这个 Token 分发给所有客户端，填入各自的 `config/client.yaml` 即可。
+>
+> 安全机制：只有携带正确默认 Token 的客户端，在首次心跳时才会被 Server **自动登记**其 `server_id`。Token 错误的未知客户端会被直接拒绝。
 
 ### 3. 配置并运行 Client
 

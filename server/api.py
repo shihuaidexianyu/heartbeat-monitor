@@ -9,9 +9,11 @@ from typing import Optional, Dict, Any
 from server.database import get_db
 from server.models import Node, Event, now_iso
 from server.status_engine import evaluate_node
+from server.config import load_server_config
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+server_config = load_server_config()
 
 
 class HeartbeatPayload(BaseModel):
@@ -33,6 +35,28 @@ class HeartbeatResponse(BaseModel):
 def heartbeat(payload: HeartbeatPayload, db: Session = Depends(get_db)):
     node = db.query(Node).filter(Node.server_id == payload.server_id).first()
     if not node:
+        if server_config.default_token and payload.token == server_config.default_token:
+            # Auto-register new node on first heartbeat with default token
+            node = Node(
+                server_id=payload.server_id,
+                hostname=payload.hostname,
+                token_hash=payload.token,
+                probe_host=payload.ip or payload.hostname or "127.0.0.1",
+                probe_port=22,
+                status="UP",
+                last_heartbeat_at=now_iso(),
+                last_payload_json=json.dumps(payload.model_dump(exclude={"token"}), ensure_ascii=False),
+            )
+            db.add(node)
+            db.add(Event(
+                server_id=payload.server_id,
+                event_type="node_registered",
+                message="auto-registered from first heartbeat",
+            ))
+            db.commit()
+            logger.info("auto-registered new node: %s", payload.server_id)
+            return HeartbeatResponse(ok=True, message="heartbeat received and node registered")
+
         logger.warning("heartbeat rejected: unknown server_id %s", payload.server_id)
         db.add(Event(
             server_id=payload.server_id,
