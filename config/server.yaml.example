@@ -1,0 +1,41 @@
+listen_host: "0.0.0.0"
+listen_port: 9999
+
+database:
+  path: "./monitor.db"
+
+monitor:
+  probe_interval_sec: 30
+  evaluation_interval_sec: 30
+  default_tcp_timeout_sec: 3
+  default_heartbeat_timeout_sec: 90
+  default_probe_fail_threshold: 3
+
+registration:
+  # 所有新节点首次注册时使用的统一凭证
+  # 安装后务必修改为一个安全的随机字符串
+  enrollment_token: "CHANGE_ME_TO_A_RANDOM_STRING"
+  # 是否为每个节点签发独立的 node_token（推荐开启）
+  issue_per_node_token: true
+
+notifications:
+  email:
+    enabled: true
+    host: "smtp.example.com"
+    port: 465
+    username: "your-email@example.com"
+    password: "your-password"
+    from_addr: "your-email@example.com"
+    to_addrs:
+      - "alert-to@example.com"
+    use_tls: true
+  feishu:
+    enabled: false
+    # 飞书自定义机器人 Webhook 地址
+    webhook_url: ""
+    # 如果启用了安全设置（签名），填入密钥；否则留空
+    secret: ""
+
+logging:
+  level: "INFO"
+  file: "./logs/server.log"

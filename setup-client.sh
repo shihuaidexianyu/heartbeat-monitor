@@ -20,32 +20,27 @@ CONFIG_DIR="config"
 mkdir -p "$CONFIG_DIR"
 
 CLIENT_CONFIG="$CONFIG_DIR/client.yaml"
+EXAMPLE_CONFIG="$CONFIG_DIR/client.yaml.example"
 
-echo "==> Generating client config template at $CLIENT_CONFIG..."
-cat > "$CLIENT_CONFIG" <<'EOF'
-server:
-  base_url: "http://127.0.0.1:9999"
-  server_id: "lab-node-01"
-  enrollment_token: "CHANGE_ME_TO_MATCH_SERVER"
-  node_token: null
-  heartbeat_interval_sec: 30
-
-agent:
-  log_dir: "./logs/hb-agent"
-  spool_dir: "./spool"
-  default_timeout_sec: 7200
-EOF
+if [[ -f "$CLIENT_CONFIG" ]]; then
+    echo ""
+    echo "Warning: $CLIENT_CONFIG already exists. Skipping copy."
+    echo "         Remove it first if you want a fresh template."
+else
+    echo "==> Copying $EXAMPLE_CONFIG -> $CLIENT_CONFIG..."
+    cp "$EXAMPLE_CONFIG" "$CLIENT_CONFIG"
+fi
 
 mkdir -p "./logs/hb-agent" "./spool"
 
 echo ""
 echo "========================================"
-echo "  Client config template generated"
+echo "  Client setup complete"
 echo "========================================"
 echo ""
 echo "Please edit $CLIENT_CONFIG before running the agent:"
 echo ""
-echo "  1. server.base_url                 -> Your server's URL (e.g. http://10.0.0.1:9999)"
+echo "  1. server.base_url                 -> Your server's URL"
 echo "  2. server.server_id                -> Unique name for this machine"
 echo "  3. server.enrollment_token         -> Same as server's registration.enrollment_token"
 echo ""
@@ -60,14 +55,53 @@ echo "Or send a one-time heartbeat test:"
 echo "  hb-agent heartbeat-once"
 echo ""
 
-# Systemd setup hint
-SERVICE_FILE="$PROJECT_ROOT/systemd/hb-client.service"
-if [[ -f "$SERVICE_FILE" ]] && command -v systemctl &> /dev/null; then
-    echo "To install systemd service, run:"
-    echo "  sed -e 's|/opt/heartbeat-monitor|$(pwd)|g' \\"
-    echo "      -e 's|^User=root|User=$(id -un)|g' \\"
-    echo "      $SERVICE_FILE | sudo tee /etc/systemd/system/hb-client.service"
-    echo "  sudo systemctl daemon-reload"
-    echo "  sudo systemctl enable --now hb-client.service"
-    echo ""
+# Helper for privilege escalation
+_run_privileged() {
+    if [[ "$EUID" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
+        sudo "$@"
+    elif command -v sudo &> /dev/null && [[ -t 0 ]]; then
+        sudo "$@"
+    else
+        return 1
+    fi
+}
+
+# Systemd setup
+read -rp "==> Install systemd service for client daemon? [y/N]: " INSTALL_SYSTEMD
+if [[ "$INSTALL_SYSTEMD" =~ ^[Yy]$ ]]; then
+    WORKDIR="$(pwd)"
+    SERVICE_FILE="$PROJECT_ROOT/systemd/hb-client.service"
+    SYSTEMD_DIR="/etc/systemd/system"
+
+    if [[ ! -f "$SERVICE_FILE" ]]; then
+        echo "Warning: systemd unit file not found, skipping installation."
+        echo "  Checked: $SERVICE_FILE"
+    elif ! command -v systemctl &> /dev/null; then
+        echo "Warning: systemctl not found, skipping systemd installation."
+    else
+        TMP_SERVICE=$(mktemp)
+        sed -e "s|/opt/heartbeat-monitor|$WORKDIR|g" \
+            -e "s|^User=root|User=$(id -un)|g" \
+            "$SERVICE_FILE" > "$TMP_SERVICE"
+
+        if _run_privileged cp "$TMP_SERVICE" "$SYSTEMD_DIR/hb-client.service"; then
+            _run_privileged systemctl daemon-reload
+            _run_privileged systemctl enable hb-client.service
+            echo "==> systemd service installed and enabled."
+            echo "    Start it with: systemctl start hb-client.service"
+        else
+            echo "Error: failed to copy service file to $SYSTEMD_DIR."
+            echo "Please run with root/sudo privileges, or install manually:"
+            echo "  sed -e 's|/opt/heartbeat-monitor|$WORKDIR|g' \\"
+            echo "      -e 's|^User=root|User=$(id -un)|g' \\"
+            echo "      $SERVICE_FILE | sudo tee $SYSTEMD_DIR/hb-client.service"
+            echo "  sudo systemctl daemon-reload"
+            echo "  sudo systemctl enable --now hb-client.service"
+        fi
+        rm -f "$TMP_SERVICE"
+    fi
+else
+    echo "==> Skipping systemd installation."
 fi
