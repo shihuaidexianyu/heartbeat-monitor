@@ -1,10 +1,11 @@
+import html
 import json
 import logging
 import secrets
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
 
@@ -31,6 +32,7 @@ class HeartbeatPayload(BaseModel):
 class HeartbeatResponse(BaseModel):
     ok: bool
     message: str
+    node_token: Optional[str] = None
 
 
 class RegisterPayload(BaseModel):
@@ -98,10 +100,16 @@ def heartbeat(payload: HeartbeatPayload, db: Session = Depends(get_db)):
         # fallback auto-register with enrollment_token
         enrollment = server_config.registration.enrollment_token or server_config.default_token
         if enrollment and payload.token == enrollment:
+            if server_config.registration.issue_per_node_token:
+                node_token = secrets.token_urlsafe(32)
+                token_hash = node_token
+            else:
+                node_token = None
+                token_hash = payload.token
             node = Node(
                 server_id=payload.server_id,
                 hostname=payload.hostname,
-                token_hash=payload.token,
+                token_hash=token_hash,
                 probe_host=payload.ip or payload.hostname or "127.0.0.1",
                 probe_port=22,
                 status="UP",
@@ -116,7 +124,11 @@ def heartbeat(payload: HeartbeatPayload, db: Session = Depends(get_db)):
             ))
             db.commit()
             logger.info("auto-registered new node: %s", payload.server_id)
-            return HeartbeatResponse(ok=True, message="heartbeat received and node registered")
+            return HeartbeatResponse(
+                ok=True,
+                message="heartbeat received and node registered",
+                node_token=node_token,
+            )
 
         logger.warning("heartbeat rejected: unknown server_id %s", payload.server_id)
         db.add(Event(
@@ -301,10 +313,10 @@ def status_page(db: Session = Depends(get_db)):
         dot = f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{color};margin-right:6px;"></span>'
         rows += f"""
         <tr>
-            <td>{n.server_id}</td>
-            <td>{n.hostname or "-"}</td>
-            <td>{dot}<span style="color:{color};font-weight:bold;">{n.status}</span></td>
-            <td>{n.last_heartbeat_at or "Never"}</td>
+            <td>{html.escape(n.server_id)}</td>
+            <td>{html.escape(n.hostname or "-")}</td>
+            <td>{dot}<span style="color:{color};font-weight:bold;">{html.escape(n.status)}</span></td>
+            <td>{html.escape(n.last_heartbeat_at or "Never")}</td>
             <td>{"OK" if n.last_probe_ok else "Failed"}</td>
         </tr>
         """
@@ -317,10 +329,10 @@ def status_page(db: Session = Depends(get_db)):
         badge = task_status_badge(t.status)
         task_rows += f"""
         <tr>
-            <td><strong>{t.task_name}</strong></td>
-            <td>{t.server_id}</td>
+            <td><strong>{html.escape(t.task_name)}</strong></td>
+            <td>{html.escape(t.server_id)}</td>
             <td>{badge}</td>
-            <td>{t.started_at or "-"}</td>
+            <td>{html.escape(t.started_at or "-")}</td>
             <td>{f"{t.duration_sec:.1f}s" if t.duration_sec else "-"}</td>
             <td>{t.exit_code if t.exit_code is not None else "-"}</td>
         </tr>
@@ -334,10 +346,10 @@ def status_page(db: Session = Depends(get_db)):
         badge = task_status_badge(t.status)
         running_rows += f"""
         <tr>
-            <td><strong>{t.task_name}</strong></td>
-            <td>{t.server_id}</td>
+            <td><strong>{html.escape(t.task_name)}</strong></td>
+            <td>{html.escape(t.server_id)}</td>
             <td>{badge}</td>
-            <td>{t.started_at or "-"}</td>
+            <td>{html.escape(t.started_at or "-")}</td>
         </tr>
         """
 
@@ -346,12 +358,12 @@ def status_page(db: Session = Depends(get_db)):
 
     failed_rows = ""
     for t in failed_tasks:
-        stderr_preview = (t.stderr_tail or "").replace("\n", "<br>")[:300]
+        stderr_preview = html.escape(t.stderr_tail or "")[:300].replace("\n", "<br>")
         badge = task_status_badge(t.status)
         failed_rows += f"""
         <tr>
-            <td><strong>{t.task_name}</strong></td>
-            <td>{t.server_id}</td>
+            <td><strong>{html.escape(t.task_name)}</strong></td>
+            <td>{html.escape(t.server_id)}</td>
             <td>{badge}</td>
             <td>{t.exit_code if t.exit_code is not None else "-"}</td>
             <td style="font-size:0.875rem;color:#64748b;">{stderr_preview or "-"}</td>
@@ -361,7 +373,7 @@ def status_page(db: Session = Depends(get_db)):
     if not failed_rows:
         failed_rows = '<tr><td colspan="5" style="text-align:center;">No failed tasks</td></tr>'
 
-    html = f"""
+    page_html = f"""
     <!DOCTYPE html>
     <html>
     <head>
@@ -486,4 +498,4 @@ def status_page(db: Session = Depends(get_db)):
     </body>
     </html>
     """
-    return html
+    return page_html

@@ -43,6 +43,8 @@ def run_task(
     stdout_path = os.path.join(log_dir, f"{task_name}_{run_id}.out")
     stderr_path = os.path.join(log_dir, f"{task_name}_{run_id}.err")
 
+    token = cfg.server.node_token or cfg.server.enrollment_token
+
     # 1. report start
     start_payload = {
         "server_id": cfg.server.server_id,
@@ -52,6 +54,7 @@ def run_task(
         "timeout_sec": timeout_sec,
         "notify_on_success": notify_on_success,
         "run_id": run_id,
+        "token": token,
     }
     base_url = cfg.server.base_url.rstrip("/")
     try:
@@ -98,6 +101,7 @@ def run_task(
         "stderr_tail": stderr_tail,
         "stdout_path": stdout_path,
         "stderr_path": stderr_path,
+        "token": token,
     }
 
     try:

@@ -1,27 +1,39 @@
 import json
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Header
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from sqlalchemy.exc import IntegrityError
+from typing import Optional, List, Literal
 
 from server.database import get_db
-from server.models import TaskRun, Event, gen_run_id
+from server.models import Node, TaskRun, Event, gen_run_id
 from server.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+VALID_TASK_STATUSES = ("STARTING", "RUNNING", "SUCCESS", "FAILED", "TIMEOUT", "CANCELLED", "LOST")
+MAX_TAIL_LEN = 10000
+MAX_LIMIT = 1000
+
+
+def _verify_node(db: Session, server_id: str, token: str):
+    node = db.query(Node).filter(Node.server_id == server_id).first()
+    if not node or node.token_hash != token:
+        raise HTTPException(status_code=401, detail="invalid token")
+
 
 class TaskStartPayload(BaseModel):
     server_id: str
-    task_name: str
+    task_name: str = Field(..., max_length=255)
     command: List[str]
     cwd: Optional[str] = None
     timeout_sec: Optional[int] = None
     notify_on_success: bool = False
     run_id: Optional[str] = None
+    token: str
 
 
 class TaskStartResponse(BaseModel):
@@ -30,14 +42,15 @@ class TaskStartResponse(BaseModel):
 
 
 class TaskFinishPayload(BaseModel):
-    status: str
+    status: Literal["SUCCESS", "FAILED", "TIMEOUT", "CANCELLED", "LOST"]
     ended_at: Optional[str] = None
     duration_sec: Optional[float] = None
     exit_code: Optional[int] = None
-    stdout_tail: Optional[str] = None
-    stderr_tail: Optional[str] = None
+    stdout_tail: Optional[str] = Field(default=None, max_length=MAX_TAIL_LEN)
+    stderr_tail: Optional[str] = Field(default=None, max_length=MAX_TAIL_LEN)
     stdout_path: Optional[str] = None
     stderr_path: Optional[str] = None
+    token: str
 
 
 class TaskFinishResponse(BaseModel):
@@ -46,6 +59,7 @@ class TaskFinishResponse(BaseModel):
 
 @router.post("/task-runs/start", response_model=TaskStartResponse)
 def task_start(payload: TaskStartPayload, db: Session = Depends(get_db)):
+    _verify_node(db, payload.server_id, payload.token)
     run_id = payload.run_id or gen_run_id()
     existing = db.query(TaskRun).filter(TaskRun.run_id == run_id).first()
     if existing:
@@ -68,7 +82,11 @@ def task_start(payload: TaskStartPayload, db: Session = Depends(get_db)):
         event_type="task_started",
         message=f"task {payload.task_name} started (run_id={run_id})",
     ))
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="run_id already exists")
     logger.info("task started: %s run_id=%s", payload.task_name, run_id)
     return TaskStartResponse(ok=True, run_id=run_id)
 
@@ -78,6 +96,8 @@ def task_finish(run_id: str, payload: TaskFinishPayload, db: Session = Depends(g
     task = db.query(TaskRun).filter(TaskRun.run_id == run_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="run_id not found")
+
+    _verify_node(db, task.server_id, payload.token)
 
     task.status = payload.status
     task.ended_at = payload.ended_at or datetime.now(timezone.utc).isoformat()
@@ -110,6 +130,7 @@ def list_task_runs(
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
+    limit = min(limit, MAX_LIMIT)
     q = db.query(TaskRun)
     if server_id:
         q = q.filter(TaskRun.server_id == server_id)
@@ -128,10 +149,15 @@ def get_task_run(run_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/task-runs/{run_id}/cancel")
-def task_cancel(run_id: str, db: Session = Depends(get_db)):
+def task_cancel(
+    run_id: str,
+    x_node_token: str = Header(..., alias="X-Node-Token"),
+    db: Session = Depends(get_db),
+):
     task = db.query(TaskRun).filter(TaskRun.run_id == run_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="run_id not found")
+    _verify_node(db, task.server_id, x_node_token)
     if task.status not in ("STARTING", "RUNNING"):
         raise HTTPException(status_code=409, detail=f"cannot cancel task in status {task.status}")
     task.status = "CANCELLED"
@@ -147,6 +173,7 @@ def task_cancel(run_id: str, db: Session = Depends(get_db)):
 
 @router.get("/nodes/{server_id}/task-runs")
 def list_node_task_runs(server_id: str, limit: int = 100, db: Session = Depends(get_db)):
+    limit = min(limit, MAX_LIMIT)
     tasks = (
         db.query(TaskRun)
         .filter(TaskRun.server_id == server_id)

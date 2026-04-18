@@ -211,6 +211,7 @@ def test_maintenance_mode():
 
 
 def test_task_run_lifecycle():
+    token = "secret-token-1"
     # start
     start_payload = {
         "server_id": "lab-server-1",
@@ -219,6 +220,7 @@ def test_task_run_lifecycle():
         "cwd": "/tmp",
         "timeout_sec": 60,
         "notify_on_success": False,
+        "token": token,
     }
     resp = client.post("/task-runs/start", json=start_payload)
     assert resp.status_code == 200
@@ -239,6 +241,7 @@ def test_task_run_lifecycle():
         "exit_code": 0,
         "stdout_tail": "hello",
         "stderr_tail": "",
+        "token": token,
     }
     resp3 = client.post(f"/task-runs/{run_id}/finish", json=finish_payload)
     assert resp3.status_code == 200
@@ -260,11 +263,13 @@ def test_task_run_lifecycle():
 
 
 def test_task_run_duplicate_run_id():
+    token = "secret-token-1"
     start_payload = {
         "server_id": "lab-server-1",
         "task_name": "dup_task",
         "command": ["sleep", "1"],
         "run_id": "duplicate-id-123",
+        "token": token,
     }
     resp = client.post("/task-runs/start", json=start_payload)
     assert resp.status_code == 200
@@ -274,29 +279,31 @@ def test_task_run_duplicate_run_id():
 
 
 def test_task_run_finish_not_found():
-    resp = client.post("/task-runs/nonexistent/finish", json={"status": "SUCCESS"})
+    resp = client.post("/task-runs/nonexistent/finish", json={"status": "SUCCESS", "token": "secret-token-1"})
     assert resp.status_code == 404
 
 
 def test_task_cancel():
+    token = "secret-token-1"
     start_payload = {
         "server_id": "lab-server-1",
         "task_name": "cancel_me",
         "command": ["sleep", "100"],
+        "token": token,
     }
     resp = client.post("/task-runs/start", json=start_payload)
     run_id = resp.json()["run_id"]
 
-    cancel_resp = client.post(f"/task-runs/{run_id}/cancel")
+    cancel_resp = client.post(f"/task-runs/{run_id}/cancel", headers={"X-Node-Token": token})
     assert cancel_resp.status_code == 200
     assert cancel_resp.json()["status"] == "CANCELLED"
 
     # cannot cancel again
-    cancel2 = client.post(f"/task-runs/{run_id}/cancel")
+    cancel2 = client.post(f"/task-runs/{run_id}/cancel", headers={"X-Node-Token": token})
     assert cancel2.status_code == 409
 
     # cancel nonexistent
-    cancel3 = client.post("/task-runs/nonexistent/cancel")
+    cancel3 = client.post("/task-runs/nonexistent/cancel", headers={"X-Node-Token": token})
     assert cancel3.status_code == 404
 
 

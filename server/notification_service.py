@@ -1,6 +1,6 @@
 import json
 import logging
-import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,8 @@ config = load_server_config()
 
 
 class NotificationService:
+    _executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="notify")
+
     def __init__(self, db: Session):
         self.db = db
         self._email = EmailNotifier(config.notifications.email) if config.notifications.email else None
@@ -76,9 +78,7 @@ class NotificationService:
     def notify_task_finish(self, task: TaskRun):
         if task.status == "SUCCESS" and not task.notify_on_success:
             return
-        if task.status in ("SUCCESS", "FAILED", "TIMEOUT", "CANCELLED"):
-            pass
-        else:
+        if task.status not in ("SUCCESS", "FAILED", "TIMEOUT", "CANCELLED"):
             return
 
         # dedup: same run_id only once
@@ -118,6 +118,23 @@ class NotificationService:
 
     def _send_async(self, source_type: str, source_id: str, event_type: str, channel: str, subject: str, body: str, notifier):
         def _do():
+            # Double-check dedup right before sending (reduces race window)
+            try:
+                from server.database import SessionLocal
+                check_db = SessionLocal()
+                dup = check_db.query(Notification).filter(
+                    Notification.source_type == source_type,
+                    Notification.source_id == source_id,
+                    Notification.event_type == event_type,
+                    Notification.channel == channel,
+                ).first()
+                check_db.close()
+                if dup:
+                    logger.info("async dedup: skip %s %s %s", source_type, source_id, event_type)
+                    return
+            except Exception:
+                pass
+
             try:
                 if isinstance(notifier, EmailNotifier):
                     ok, response = notifier.send(subject, body)
@@ -148,5 +165,4 @@ class NotificationService:
                 if db:
                     db.close()
 
-        thread = threading.Thread(target=_do, daemon=True)
-        thread.start()
+        self._executor.submit(_do)
