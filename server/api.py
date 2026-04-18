@@ -1,5 +1,6 @@
 import json
 import logging
+import secrets
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
@@ -32,12 +33,71 @@ class HeartbeatResponse(BaseModel):
     message: str
 
 
+class RegisterPayload(BaseModel):
+    server_id: str
+    enrollment_token: str
+    hostname: Optional[str] = None
+    ip: Optional[str] = None
+
+
+class RegisterResponse(BaseModel):
+    ok: bool
+    node_token: str
+    server_id: str
+    heartbeat_interval_sec: int
+
+
+@router.post("/register", response_model=RegisterResponse)
+def register(payload: RegisterPayload, db: Session = Depends(get_db)):
+    expected = server_config.registration.enrollment_token or server_config.default_token
+    if not expected or payload.enrollment_token != expected:
+        logger.warning("register rejected: invalid enrollment token for %s", payload.server_id)
+        raise HTTPException(status_code=401, detail="invalid enrollment token")
+
+    node = db.query(Node).filter(Node.server_id == payload.server_id).first()
+    node_token = secrets.token_urlsafe(32)
+    if node:
+        node.token_hash = node_token
+        if payload.hostname:
+            node.hostname = payload.hostname
+        if payload.ip:
+            node.probe_host = payload.ip
+        event_msg = "re-registered via /register"
+    else:
+        node = Node(
+            server_id=payload.server_id,
+            hostname=payload.hostname,
+            token_hash=node_token,
+            probe_host=payload.ip or payload.hostname or "127.0.0.1",
+            probe_port=22,
+            status="UP",
+            last_heartbeat_at=now_iso(),
+        )
+        db.add(node)
+        event_msg = "registered via /register"
+
+    db.add(Event(
+        server_id=payload.server_id,
+        event_type="node_registered",
+        message=event_msg,
+    ))
+    db.commit()
+    logger.info("node registered: %s", payload.server_id)
+    return RegisterResponse(
+        ok=True,
+        node_token=node_token,
+        server_id=payload.server_id,
+        heartbeat_interval_sec=node.expected_interval_sec,
+    )
+
+
 @router.post("/heartbeat", response_model=HeartbeatResponse)
 def heartbeat(payload: HeartbeatPayload, db: Session = Depends(get_db)):
     node = db.query(Node).filter(Node.server_id == payload.server_id).first()
     if not node:
-        if server_config.default_token and payload.token == server_config.default_token:
-            # Auto-register new node on first heartbeat with default token
+        # fallback auto-register with enrollment_token
+        enrollment = server_config.registration.enrollment_token or server_config.default_token
+        if enrollment and payload.token == enrollment:
             node = Node(
                 server_id=payload.server_id,
                 hostname=payload.hostname,
@@ -131,25 +191,119 @@ def get_node(server_id: str, db: Session = Depends(get_db)):
     return node.to_dict()
 
 
+@router.post("/nodes/{server_id}/maintenance/start")
+def maintenance_start(server_id: str, db: Session = Depends(get_db)):
+    node = db.query(Node).filter(Node.server_id == server_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="node not found")
+    node.status = "MAINTENANCE"
+    db.add(Event(
+        server_id=server_id,
+        event_type="maintenance_started",
+        message="node entered maintenance mode",
+    ))
+    db.commit()
+    return {"ok": True, "status": "MAINTENANCE"}
+
+
+@router.post("/nodes/{server_id}/maintenance/end")
+def maintenance_end(server_id: str, db: Session = Depends(get_db)):
+    node = db.query(Node).filter(Node.server_id == server_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="node not found")
+    # Force re-evaluation on next cycle
+    node.status = "UP"
+    evaluate_node(db, node)
+    db.add(Event(
+        server_id=server_id,
+        event_type="maintenance_ended",
+        message="node left maintenance mode, re-evaluating",
+    ))
+    db.commit()
+    return {"ok": True, "status": node.status}
+
+
 @router.get("/status-page", response_class=HTMLResponse)
 def status_page(db: Session = Depends(get_db)):
+    from server.models import TaskRun
+    from collections import Counter
     nodes = db.query(Node).all()
+    all_tasks = db.query(TaskRun).order_by(TaskRun.created_at.desc()).limit(100).all()
+    recent_tasks = all_tasks[:20]
+    failed_tasks = [t for t in all_tasks if t.status in ("FAILED", "TIMEOUT")][:10]
+    running_tasks = [t for t in all_tasks if t.status in ("STARTING", "RUNNING")][:10]
+
+    node_counts = Counter(n.status for n in nodes)
+    task_counts = Counter(t.status for t in all_tasks)
 
     def status_color(status: str) -> str:
         if status == "UP":
-            return "#22c55e"  # green
+            return "#22c55e"
         elif status == "DOWN":
-            return "#ef4444"  # red
-        return "#f59e0b"  # yellow for SUSPECT
+            return "#ef4444"
+        elif status == "MAINTENANCE":
+            return "#3b82f6"
+        return "#f59e0b"
+
+    def task_status_badge(status: str) -> str:
+        colors = {
+            "STARTING": ("#64748b", "#f1f5f9"),
+            "RUNNING": ("#3b82f6", "#eff6ff"),
+            "SUCCESS": ("#22c55e", "#f0fdf4"),
+            "FAILED": ("#ef4444", "#fef2f2"),
+            "TIMEOUT": ("#f97316", "#fff7ed"),
+            "CANCELLED": ("#8b5cf6", "#f5f3ff"),
+            "LOST": ("#000000", "#f3f4f6"),
+        }
+        fg, bg = colors.get(status, ("#64748b", "#f1f5f9"))
+        return f'<span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:0.75rem;font-weight:600;color:{fg};background:{bg};">{status}</span>'
+
+    # Node overview cards
+    node_total = len(nodes)
+    node_up = node_counts.get("UP", 0)
+    node_down = node_counts.get("DOWN", 0)
+    node_suspect = node_counts.get("SUSPECT", 0)
+    node_maint = node_counts.get("MAINTENANCE", 0)
+
+    # Task overview cards
+    task_total = len(all_tasks)
+    task_running = task_counts.get("RUNNING", 0) + task_counts.get("STARTING", 0)
+    task_success = task_counts.get("SUCCESS", 0)
+    task_failed = task_counts.get("FAILED", 0) + task_counts.get("TIMEOUT", 0)
+
+    def _card(label: str, value: int, color: str) -> str:
+        return f"""
+        <div style="flex:1;min-width:120px;background:white;padding:16px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);text-align:center;">
+            <div style="font-size:1.75rem;font-weight:700;color:{color};">{value}</div>
+            <div style="font-size:0.875rem;color:#64748b;margin-top:4px;">{label}</div>
+        </div>
+        """
+
+    overview = f"""
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">
+        {_card("Nodes", node_total, "#1e293b")}
+        {_card("UP", node_up, "#22c55e")}
+        {_card("DOWN", node_down, "#ef4444")}
+        {_card("SUSPECT", node_suspect, "#f59e0b")}
+        {_card("MAINT", node_maint, "#3b82f6")}
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">
+        {_card("Tasks", task_total, "#1e293b")}
+        {_card("Running", task_running, "#3b82f6")}
+        {_card("Success", task_success, "#22c55e")}
+        {_card("Failed", task_failed, "#ef4444")}
+    </div>
+    """
 
     rows = ""
     for n in nodes:
         color = status_color(n.status)
+        dot = f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{color};margin-right:6px;"></span>'
         rows += f"""
         <tr>
             <td>{n.server_id}</td>
             <td>{n.hostname or "-"}</td>
-            <td style="color:{color};font-weight:bold;">{n.status}</td>
+            <td>{dot}<span style="color:{color};font-weight:bold;">{n.status}</span></td>
             <td>{n.last_heartbeat_at or "Never"}</td>
             <td>{"OK" if n.last_probe_ok else "Failed"}</td>
         </tr>
@@ -157,6 +311,55 @@ def status_page(db: Session = Depends(get_db)):
 
     if not rows:
         rows = '<tr><td colspan="5" style="text-align:center;">No nodes registered yet</td></tr>'
+
+    task_rows = ""
+    for t in recent_tasks:
+        badge = task_status_badge(t.status)
+        task_rows += f"""
+        <tr>
+            <td><strong>{t.task_name}</strong></td>
+            <td>{t.server_id}</td>
+            <td>{badge}</td>
+            <td>{t.started_at or "-"}</td>
+            <td>{f"{t.duration_sec:.1f}s" if t.duration_sec else "-"}</td>
+            <td>{t.exit_code if t.exit_code is not None else "-"}</td>
+        </tr>
+        """
+
+    if not task_rows:
+        task_rows = '<tr><td colspan="6" style="text-align:center;">No tasks yet</td></tr>'
+
+    running_rows = ""
+    for t in running_tasks:
+        badge = task_status_badge(t.status)
+        running_rows += f"""
+        <tr>
+            <td><strong>{t.task_name}</strong></td>
+            <td>{t.server_id}</td>
+            <td>{badge}</td>
+            <td>{t.started_at or "-"}</td>
+        </tr>
+        """
+
+    if not running_rows:
+        running_rows = '<tr><td colspan="4" style="text-align:center;">No running tasks</td></tr>'
+
+    failed_rows = ""
+    for t in failed_tasks:
+        stderr_preview = (t.stderr_tail or "").replace("\n", "<br>")[:300]
+        badge = task_status_badge(t.status)
+        failed_rows += f"""
+        <tr>
+            <td><strong>{t.task_name}</strong></td>
+            <td>{t.server_id}</td>
+            <td>{badge}</td>
+            <td>{t.exit_code if t.exit_code is not None else "-"}</td>
+            <td style="font-size:0.875rem;color:#64748b;">{stderr_preview or "-"}</td>
+        </tr>
+        """
+
+    if not failed_rows:
+        failed_rows = '<tr><td colspan="5" style="text-align:center;">No failed tasks</td></tr>'
 
     html = f"""
     <!DOCTYPE html>
@@ -168,7 +371,7 @@ def status_page(db: Session = Depends(get_db)):
         <style>
             body {{
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                max-width: 900px;
+                max-width: 1200px;
                 margin: 40px auto;
                 padding: 0 20px;
                 background: #f8fafc;
@@ -177,6 +380,11 @@ def status_page(db: Session = Depends(get_db)):
                 font-size: 1.5rem;
                 margin-bottom: 1rem;
             }}
+            h2 {{
+                font-size: 1.25rem;
+                margin-top: 2rem;
+                margin-bottom: 0.75rem;
+            }}
             table {{
                 width: 100%;
                 border-collapse: collapse;
@@ -184,6 +392,7 @@ def status_page(db: Session = Depends(get_db)):
                 box-shadow: 0 1px 3px rgba(0,0,0,0.1);
                 border-radius: 8px;
                 overflow: hidden;
+                margin-bottom: 1rem;
             }}
             th, td {{
                 padding: 12px 16px;
@@ -207,6 +416,9 @@ def status_page(db: Session = Depends(get_db)):
     </head>
     <body>
         <h1>Heartbeat Monitor Status</h1>
+        {overview}
+
+        <h2>Nodes</h2>
         <table>
             <thead>
                 <tr>
@@ -221,6 +433,55 @@ def status_page(db: Session = Depends(get_db)):
                 {rows}
             </tbody>
         </table>
+
+        <h2>Running Tasks</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Task</th>
+                    <th>Node</th>
+                    <th>Status</th>
+                    <th>Started</th>
+                </tr>
+            </thead>
+            <tbody>
+                {running_rows}
+            </tbody>
+        </table>
+
+        <h2>Recent Tasks</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Task</th>
+                    <th>Node</th>
+                    <th>Status</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                    <th>Exit Code</th>
+                </tr>
+            </thead>
+            <tbody>
+                {task_rows}
+            </tbody>
+        </table>
+
+        <h2>Failed Tasks</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Task</th>
+                    <th>Node</th>
+                    <th>Status</th>
+                    <th>Exit Code</th>
+                    <th>Stderr Tail</th>
+                </tr>
+            </thead>
+            <tbody>
+                {failed_rows}
+            </tbody>
+        </table>
+
         <p class="meta">Auto-refreshes every 5 seconds</p>
     </body>
     </html>

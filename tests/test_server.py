@@ -9,7 +9,7 @@ os.environ["SERVER_CONFIG"] = ""
 
 from server.database import SessionLocal, engine, Base
 from server.main import app
-from server.models import Node
+from server.models import Node, TaskRun
 
 client = TestClient(app)
 
@@ -153,3 +153,157 @@ def test_status_engine_evaluate():
         assert node.status == "UP"
     finally:
         db.close()
+
+
+def test_register_endpoint():
+    import server.api
+    server.api.server_config.registration.enrollment_token = "enroll-test"
+    payload = {
+        "server_id": "lab-server-new",
+        "enrollment_token": "enroll-test",
+        "hostname": "registered-node",
+        "ip": "10.0.0.100",
+    }
+    resp = client.post("/register", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert "node_token" in data
+    assert data["server_id"] == "lab-server-new"
+
+    # use the returned token for heartbeat
+    token = data["node_token"]
+    hb_resp = client.post("/heartbeat", json={
+        "server_id": "lab-server-new",
+        "token": token,
+    })
+    assert hb_resp.status_code == 200
+
+
+def test_register_invalid_token():
+    import server.api
+    server.api.server_config.registration.enrollment_token = "enroll-test"
+    payload = {
+        "server_id": "lab-server-bad",
+        "enrollment_token": "wrong-token",
+    }
+    resp = client.post("/register", json=payload)
+    assert resp.status_code == 401
+
+
+def test_maintenance_mode():
+    resp = client.post("/nodes/lab-server-1/maintenance/start")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "MAINTENANCE"
+
+    # evaluate should keep maintenance
+    from server.status_engine import evaluate_node
+    db = SessionLocal()
+    try:
+        node = db.query(Node).filter(Node.server_id == "lab-server-1").first()
+        evaluate_node(db, node)
+        assert node.status == "MAINTENANCE"
+    finally:
+        db.close()
+
+    resp2 = client.post("/nodes/lab-server-1/maintenance/end")
+    assert resp2.status_code == 200
+
+
+def test_task_run_lifecycle():
+    # start
+    start_payload = {
+        "server_id": "lab-server-1",
+        "task_name": "test_task",
+        "command": ["echo", "hello"],
+        "cwd": "/tmp",
+        "timeout_sec": 60,
+        "notify_on_success": False,
+    }
+    resp = client.post("/task-runs/start", json=start_payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    run_id = data["run_id"]
+
+    # get
+    resp2 = client.get(f"/task-runs/{run_id}")
+    assert resp2.status_code == 200
+    assert resp2.json()["status"] == "RUNNING"
+
+    # finish
+    finish_payload = {
+        "status": "SUCCESS",
+        "ended_at": "2024-01-01T00:00:00+00:00",
+        "duration_sec": 1.5,
+        "exit_code": 0,
+        "stdout_tail": "hello",
+        "stderr_tail": "",
+    }
+    resp3 = client.post(f"/task-runs/{run_id}/finish", json=finish_payload)
+    assert resp3.status_code == 200
+    assert resp3.json()["ok"] is True
+
+    # query finished
+    resp4 = client.get(f"/task-runs/{run_id}")
+    assert resp4.json()["status"] == "SUCCESS"
+    assert resp4.json()["exit_code"] == 0
+
+    # list
+    resp5 = client.get("/task-runs")
+    assert resp5.status_code == 200
+    assert any(t["run_id"] == run_id for t in resp5.json())
+
+    # node task runs
+    resp6 = client.get("/nodes/lab-server-1/task-runs")
+    assert any(t["run_id"] == run_id for t in resp6.json())
+
+
+def test_task_run_duplicate_run_id():
+    start_payload = {
+        "server_id": "lab-server-1",
+        "task_name": "dup_task",
+        "command": ["sleep", "1"],
+        "run_id": "duplicate-id-123",
+    }
+    resp = client.post("/task-runs/start", json=start_payload)
+    assert resp.status_code == 200
+
+    resp2 = client.post("/task-runs/start", json=start_payload)
+    assert resp2.status_code == 409
+
+
+def test_task_run_finish_not_found():
+    resp = client.post("/task-runs/nonexistent/finish", json={"status": "SUCCESS"})
+    assert resp.status_code == 404
+
+
+def test_task_cancel():
+    start_payload = {
+        "server_id": "lab-server-1",
+        "task_name": "cancel_me",
+        "command": ["sleep", "100"],
+    }
+    resp = client.post("/task-runs/start", json=start_payload)
+    run_id = resp.json()["run_id"]
+
+    cancel_resp = client.post(f"/task-runs/{run_id}/cancel")
+    assert cancel_resp.status_code == 200
+    assert cancel_resp.json()["status"] == "CANCELLED"
+
+    # cannot cancel again
+    cancel2 = client.post(f"/task-runs/{run_id}/cancel")
+    assert cancel2.status_code == 409
+
+    # cancel nonexistent
+    cancel3 = client.post("/task-runs/nonexistent/cancel")
+    assert cancel3.status_code == 404
+
+
+def test_status_page():
+    resp = client.get("/status-page")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "Heartbeat Monitor Status" in html
+    assert "Recent Tasks" in html
+    assert "Failed Tasks" in html

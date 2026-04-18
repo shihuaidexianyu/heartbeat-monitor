@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from server.models import Node, Event, now_iso
-from server.notifier import notify_status_change
+from server.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +28,13 @@ def heartbeat_timed_out(node: Node) -> bool:
 
 def evaluate_node(db: Session, node: Node):
     old_status = node.status
+    if old_status == "MAINTENANCE":
+        db.add(node)
+        return
+
     hb_timeout = heartbeat_timed_out(node)
     probe_failed = node.probe_fail_count >= node.probe_fail_threshold
 
-    # Determine new status based on state machine
     if old_status == "UP":
         if hb_timeout or probe_failed:
             new_status = "SUSPECT"
@@ -50,7 +53,6 @@ def evaluate_node(db: Session, node: Node):
         else:
             new_status = "DOWN"
     else:
-        # Unknown status fallback
         if hb_timeout and probe_failed:
             new_status = "DOWN"
         elif hb_timeout or probe_failed:
@@ -76,11 +78,10 @@ def evaluate_node(db: Session, node: Node):
             event_type="status_changed",
             message=f"{old_status} -> {new_status}: {reason}",
         ))
-        notify_status_change(db, node, old_status, new_status, reason)
+        svc = NotificationService(db)
+        svc.notify_node_change(node, old_status, new_status, reason)
     else:
-        # Log heartbeat timeout event when staying in same non-UP state
         if hb_timeout and old_status != "UP":
-            # Avoid spamming events; only log if we haven't recently
             pass
 
     db.add(node)

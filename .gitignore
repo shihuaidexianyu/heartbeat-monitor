@@ -13,6 +13,30 @@ wheels/
 *.db
 *.log
 logs/
+spool/
+
+# Testing
 .pytest_cache/
+
+# Package management
 uv.lock
-config/
+
+# Configuration (contains credentials; use .example files for templates)
+config/*.yaml
+config/*.yml
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local agent skills (codex skills are kept)
+.agents/
+.codex/

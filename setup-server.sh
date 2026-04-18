@@ -53,13 +53,13 @@ SMTP_TO="${SMTP_TO:-$DEFAULT_SMTP_TO}"
 DB_PATH="${DB_PATH:-$DEFAULT_DB_PATH}"
 LOG_FILE="${LOG_FILE:-$DEFAULT_LOG_FILE}"
 
-DEFAULT_TOKEN="your-secret-token"
+ENROLLMENT_TOKEN="your-secret-token"
 
 echo ""
-read -rsp "Default client token (press Enter to use '$DEFAULT_TOKEN'): " INPUT_TOKEN
+read -rsp "Enrollment token for new nodes (press Enter to use '$ENROLLMENT_TOKEN'): " INPUT_TOKEN
 echo ""
 if [[ -z "$INPUT_TOKEN" ]]; then
-    INPUT_TOKEN="$DEFAULT_TOKEN"
+    INPUT_TOKEN="$ENROLLMENT_TOKEN"
 fi
 
 SERVER_CONFIG="$CONFIG_DIR/server.yaml"
@@ -68,25 +68,35 @@ echo "==> Generating server config at $SERVER_CONFIG..."
 cat > "$SERVER_CONFIG" <<EOF
 listen_host: "$LISTEN_HOST"
 listen_port: $LISTEN_PORT
-default_token: "$INPUT_TOKEN"
 
-smtp:
-  host: "$SMTP_HOST"
-  port: $SMTP_PORT
-  username: "$SMTP_USER"
-  password: "$SMTP_PASS"
-  from_addr: "$SMTP_FROM"
-  to_addrs:
-    - "$SMTP_TO"
-  use_tls: true
+database:
+  path: "$DB_PATH"
 
 monitor:
   probe_interval_sec: 30
   evaluation_interval_sec: 30
   default_tcp_timeout_sec: 3
+  default_heartbeat_timeout_sec: 90
+  default_probe_fail_threshold: 3
 
-database:
-  path: "$DB_PATH"
+registration:
+  enrollment_token: "$INPUT_TOKEN"
+  issue_per_node_token: true
+
+notifications:
+  email:
+    host: "$SMTP_HOST"
+    port: $SMTP_PORT
+    username: "$SMTP_USER"
+    password: "$SMTP_PASS"
+    from_addr: "$SMTP_FROM"
+    to_addrs:
+      - "$SMTP_TO"
+    use_tls: true
+  feishu:
+    enabled: false
+    webhook_url: ""
+    secret: ""
 
 logging:
   level: "INFO"

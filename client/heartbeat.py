@@ -27,28 +27,30 @@ def get_local_ip() -> str:
 
 def build_payload() -> dict:
     hostname = socket.gethostname()
+    token = config.server.node_token or config.server.enrollment_token
     return {
-        "server_id": config.server_id,
-        "token": config.token,
+        "server_id": config.server.server_id,
+        "token": token,
         "hostname": hostname,
         "timestamp": int(time.time()),
         "ip": get_local_ip(),
         "services": {},
-        "meta": {},
+        "meta": {
+            "agent_version": "0.2.0",
+            "os": "Linux",
+        },
     }
 
 
-def send_heartbeat() -> bool:
+def send_heartbeat() -> tuple[bool, dict]:
     payload = build_payload()
+    url = config.server.base_url.rstrip("/") + "/heartbeat"
     try:
-        resp = requests.post(
-            config.server_url,
-            json=payload,
-            timeout=config.timeout_sec,
-        )
+        resp = requests.post(url, json=payload, timeout=10)
         resp.raise_for_status()
-        logger.info("heartbeat sent successfully: %s", resp.json().get("message"))
-        return True
+        data = resp.json()
+        logger.info("heartbeat sent successfully: %s", data.get("message"))
+        return True, data
     except requests.Timeout:
         logger.error("heartbeat request timeout")
     except requests.ConnectionError as e:
@@ -57,4 +59,4 @@ def send_heartbeat() -> bool:
         logger.error("heartbeat failed: %s", e)
     except Exception as e:
         logger.error("heartbeat unexpected error: %s", e)
-    return False
+    return False, {}

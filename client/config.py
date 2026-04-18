@@ -3,12 +3,23 @@ import yaml
 from pydantic import BaseModel
 
 
+class ServerConfig(BaseModel):
+    base_url: str = "http://127.0.0.1:8000"
+    server_id: str = ""
+    enrollment_token: str = ""
+    node_token: str | None = None
+    heartbeat_interval_sec: int = 30
+
+
+class AgentConfig(BaseModel):
+    log_dir: str = "/var/log/hb-agent"
+    spool_dir: str = "/var/lib/hb-agent/spool"
+    default_timeout_sec: int = 7200
+
+
 class ClientConfig(BaseModel):
-    server_url: str
-    server_id: str
-    token: str
-    interval_sec: int = 30
-    timeout_sec: int = 5
+    server: ServerConfig = ServerConfig()
+    agent: AgentConfig = AgentConfig()
 
 
 def load_client_config(path: str | None = None) -> ClientConfig:

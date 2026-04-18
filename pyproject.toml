@@ -19,3 +19,6 @@ dependencies = [
 
 [tool.setuptools]
 packages = ["server", "client"]
+
+[project.scripts]
+hb-agent = "client.cli:main"

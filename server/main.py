@@ -31,11 +31,9 @@ logger = logging.getLogger(__name__)
 def ensure_seed_nodes():
     db = SessionLocal()
     try:
-        # If no nodes exist, seed from environment or config
         count = db.query(Node).count()
         if count == 0:
             logger.info("No nodes found in database, seeding demo nodes if configured")
-            # Optional: seed from a JSON file or env var for quickstart
             seed = os.environ.get("MONITOR_NODES_SEED")
             if seed:
                 import json
@@ -90,9 +88,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Heartbeat Monitor", lifespan=lifespan)
 
-from server.api import router
+from server.api import router as api_router
+from server.task_api import router as task_router
 
-app.include_router(router)
+app.include_router(api_router)
+app.include_router(task_router)
 
 if __name__ == "__main__":
     import uvicorn
