@@ -20,7 +20,7 @@ CONFIG_DIR="config"
 mkdir -p "$CONFIG_DIR"
 
 SERVER_CONFIG="$CONFIG_DIR/server.yaml"
-EXAMPLE_CONFIG="$CONFIG_DIR/server.yaml.example"
+EXAMPLE_CONFIG="$CONFIG_DIR/example.server.yaml"
 
 if [[ -f "$SERVER_CONFIG" ]]; then
     echo ""
