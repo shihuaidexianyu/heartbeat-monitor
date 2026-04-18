@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "heartbeat-monitor"
 version = "0.1.0"
@@ -17,8 +21,8 @@ dependencies = [
     "httpx>=0.24.0",
 ]
 
-[tool.setuptools]
-packages = ["server", "client"]
-
 [project.scripts]
 hb-agent = "client.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["server", "client"]
