@@ -1,6 +1,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
@@ -13,17 +14,34 @@ from server.status_engine import evaluate_all_nodes
 
 config = load_server_config()
 
-# Setup logging
-logging.basicConfig(
-    level=getattr(logging, config.logging.level.upper(), logging.INFO),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-    ],
-)
-if config.logging.file:
-    os.makedirs(os.path.dirname(config.logging.file), exist_ok=True)
-    logging.getLogger().addHandler(logging.FileHandler(config.logging.file))
+def configure_logging():
+    root_logger = logging.getLogger()
+    level = getattr(logging, config.logging.level.upper(), logging.INFO)
+    root_logger.setLevel(level)
+
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    if not root_logger.handlers:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        root_logger.addHandler(stream_handler)
+
+    if config.logging.file:
+        log_path = Path(config.logging.file).expanduser().resolve()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        has_same_file_handler = any(
+            isinstance(handler, logging.FileHandler)
+            and Path(getattr(handler, "baseFilename", "")).resolve() == log_path
+            for handler in root_logger.handlers
+        )
+        if not has_same_file_handler:
+            file_handler = logging.FileHandler(log_path)
+            file_handler.setFormatter(formatter)
+            root_logger.addHandler(file_handler)
+
+
+configure_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +116,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "server.main:app",
+        app,
         host=config.listen_host,
         port=config.listen_port,
         reload=False,
