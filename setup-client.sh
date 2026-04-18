@@ -16,6 +16,22 @@ uv sync
 echo "==> Installing package..."
 uv pip install -e . > /dev/null 2>&1
 
+USER_BIN_DIR="${HOME}/.local/bin"
+LAUNCHER_PATH="${USER_BIN_DIR}/hb"
+OLD_LAUNCHER_PATH="${USER_BIN_DIR}/hb-agent"
+VENV_AGENT="$PROJECT_ROOT/.venv/bin/hb"
+
+mkdir -p "$USER_BIN_DIR"
+rm -f "$OLD_LAUNCHER_PATH"
+rm -f "$LAUNCHER_PATH"
+cat > "$LAUNCHER_PATH" <<EOF
+#!/bin/sh
+export CLIENT_CONFIG="$PROJECT_ROOT/config/client.yaml"
+cd "$PROJECT_ROOT" || exit 1
+exec "$VENV_AGENT" "\$@"
+EOF
+chmod +x "$LAUNCHER_PATH"
+
 CONFIG_DIR="config"
 mkdir -p "$CONFIG_DIR"
 
@@ -44,16 +60,30 @@ echo "  1. server.base_url                 -> Your server's URL"
 echo "  2. server.server_id                -> Unique name for this machine"
 echo "  3. server.enrollment_token         -> Same as server's registration.enrollment_token"
 echo ""
-echo "After editing, register this node to get a node_token:"
+echo "The client will auto-register on its first heartbeat when the enrollment token matches."
+echo ""
+echo "To start the heartbeat daemon manually:"
 echo "  export CLIENT_CONFIG=$CLIENT_CONFIG"
-echo "  hb-agent register"
+echo "  uv run hb-daemon"
 echo ""
-echo "Then save the returned node_token into the config file, and start the daemon:"
-echo "  hb-agent daemon"
+echo "To run a monitored task manually:"
+echo "  export CLIENT_CONFIG=$CLIENT_CONFIG"
+echo "  hb --name backup --timeout 1800 -- bash backup.sh"
 echo ""
-echo "Or send a one-time heartbeat test:"
-echo "  hb-agent heartbeat-once"
+echo "If hb is still not found in a new shell, use one of these:"
+echo "  $LAUNCHER_PATH --name backup --timeout 1800 -- bash backup.sh"
+echo "  uv run hb --name backup --timeout 1800 -- bash backup.sh"
 echo ""
+
+case ":$PATH:" in
+    *":$USER_BIN_DIR:"*) ;;
+    *)
+        echo "Note: $USER_BIN_DIR is not in your PATH yet."
+        echo "Add this line to your shell profile (~/.bashrc or ~/.zshrc):"
+        echo "  export PATH=\"$USER_BIN_DIR:\$PATH\""
+        echo ""
+        ;;
+esac
 
 # Helper for privilege escalation
 _run_privileged() {

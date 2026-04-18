@@ -1,12 +1,10 @@
 import logging
 import socket
 import time
-from datetime import datetime, timezone
 import requests
 from client.config import load_client_config
 
 logger = logging.getLogger(__name__)
-config = load_client_config()
 
 
 def get_local_ip() -> str:
@@ -25,11 +23,12 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def build_payload() -> dict:
+def build_payload(cfg=None) -> dict:
+    cfg = cfg or load_client_config()
     hostname = socket.gethostname()
-    token = config.server.node_token or config.server.enrollment_token
+    token = cfg.server.node_token or cfg.server.enrollment_token
     return {
-        "server_id": config.server.server_id,
+        "server_id": cfg.server.server_id,
         "token": token,
         "hostname": hostname,
         "timestamp": int(time.time()),
@@ -42,9 +41,10 @@ def build_payload() -> dict:
     }
 
 
-def send_heartbeat() -> tuple[bool, dict]:
-    payload = build_payload()
-    url = config.server.base_url.rstrip("/") + "/heartbeat"
+def send_heartbeat(cfg=None) -> tuple[bool, dict]:
+    cfg = cfg or load_client_config()
+    payload = build_payload(cfg)
+    url = cfg.server.base_url.rstrip("/") + "/heartbeat"
     try:
         resp = requests.post(url, json=payload, timeout=10)
         resp.raise_for_status()

@@ -22,7 +22,8 @@ dependencies = [
 ]
 
 [project.scripts]
-hb-agent = "client.cli:main"
+hb = "client.cli:main"
+hb-daemon = "client.agent:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["server", "client"]

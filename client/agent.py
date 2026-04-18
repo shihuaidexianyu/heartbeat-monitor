@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 import time
 import requests
 from client.config import load_client_config
@@ -52,11 +51,11 @@ def run_daemon():
     os.makedirs(cfg.agent.spool_dir, exist_ok=True)
 
     interval = cfg.server.heartbeat_interval_sec
-    logger.info("hb-agent daemon started, server_id=%s, interval=%ds", cfg.server.server_id, interval)
+    logger.info("hb daemon started, server_id=%s, interval=%ds", cfg.server.server_id, interval)
 
     while True:
         _flush_spool(cfg)
-        ok, data = send_heartbeat()
+        ok, data = send_heartbeat(cfg)
         if not ok:
             payload = {
                 "server_id": cfg.server.server_id,
@@ -70,3 +69,15 @@ def run_daemon():
             spool.save(cfg.agent.spool_dir, payload, "heartbeat")
             logger.info("heartbeat spooled for retry")
         time.sleep(interval)
+
+
+def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    run_daemon()
+
+
+if __name__ == "__main__":
+    main()

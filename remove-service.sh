@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+USER_BIN_DIR="${HOME}/.local/bin"
+CLIENT_LAUNCHER="${USER_BIN_DIR}/hb"
+OLD_CLIENT_LAUNCHER="${USER_BIN_DIR}/hb-agent"
+
 _run_privileged() {
     if [[ "$EUID" -eq 0 ]]; then
         "$@"
@@ -10,6 +16,16 @@ _run_privileged() {
         sudo "$@"
     else
         return 1
+    fi
+}
+
+_remove_path() {
+    local path="$1"
+    if [[ -e "$path" || -L "$path" ]]; then
+        rm -rf "$path"
+        echo "==> Removed $path"
+    else
+        echo "==> $path not found, skipping"
     fi
 }
 
@@ -39,6 +55,7 @@ _reload_daemon() {
 }
 
 echo "==> This will remove systemd services for heartbeat-monitor"
+echo "==> Project root: $PROJECT_ROOT"
 
 read -rp "Remove server service (hb-server.service)? [y/N]: " REMOVE_SERVER
 if [[ "$REMOVE_SERVER" =~ ^[Yy]$ ]]; then
@@ -52,5 +69,31 @@ if [[ "$REMOVE_CLIENT" =~ ^[Yy]$ ]]; then
 fi
 
 _reload_daemon
+
+read -rp "Remove client launcher (${CLIENT_LAUNCHER}) and old alias (${OLD_CLIENT_LAUNCHER})? [y/N]: " REMOVE_LAUNCHER
+if [[ "$REMOVE_LAUNCHER" =~ ^[Yy]$ ]]; then
+    _remove_path "$CLIENT_LAUNCHER"
+    _remove_path "$OLD_CLIENT_LAUNCHER"
+fi
+
+read -rp "Uninstall editable package from project virtualenv (.venv)? [y/N]: " REMOVE_PACKAGE
+if [[ "$REMOVE_PACKAGE" =~ ^[Yy]$ ]]; then
+    if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]] && command -v uv &> /dev/null; then
+        (
+            cd "$PROJECT_ROOT"
+            uv pip uninstall -y heartbeat-monitor >/dev/null 2>&1 || true
+        )
+        echo "==> Uninstalled heartbeat-monitor from $PROJECT_ROOT/.venv"
+    else
+        echo "==> .venv or uv not found, skipping package uninstall"
+    fi
+fi
+
+read -rp "Remove generated runtime files (logs/, spool/, monitor.db)? [y/N]: " REMOVE_RUNTIME
+if [[ "$REMOVE_RUNTIME" =~ ^[Yy]$ ]]; then
+    _remove_path "$PROJECT_ROOT/logs"
+    _remove_path "$PROJECT_ROOT/spool"
+    _remove_path "$PROJECT_ROOT/monitor.db"
+fi
 
 echo "==> Done"

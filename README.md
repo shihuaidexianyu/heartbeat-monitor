@@ -8,7 +8,7 @@
 
 - **双重检测**：心跳上报与 TCP 主动探测相结合，降低误报率
 - **状态机驱动**：`UP` / `SUSPECT` / `DOWN` / `MAINTENANCE` 四态转换
-- **任务监控**：通过 `hb-agent run` 包装任务，自动上报开始/结束/退出码/日志摘要
+- **任务监控**：通过 `hb` 包装任务，自动上报开始/结束/退出码/日志摘要
 - **统一通知**：飞书 Webhook + SMTP 邮件双通道，支持去重和限流
 - **统一 Token 认证**：所有节点共享一个 enrollment token，无需两阶段注册和独立 node token
 - **断网缓存**：Client 在 server 不可达时本地缓存事件，恢复后自动补发
@@ -32,7 +32,7 @@
 │   ├── probe.py              # TCP 主动探测
 │   └── status_engine.py      # 状态机与告警判定
 ├── client/                   # Client 端（被监控节点）
-│   ├── cli.py                # hb-agent 统一 CLI
+│   ├── cli.py                # hb 统一 CLI
 │   ├── agent.py              # 常驻 heartbeat daemon
 │   ├── task_runner.py        # 任务 wrapper 执行与上报
 │   ├── heartbeat.py          # 心跳上报逻辑
@@ -109,27 +109,22 @@ Server 将监听配置的端口（默认 `0.0.0.0:9999`），并每 30 秒执行
 2. 交互式生成 `config/client.yaml`
 3. 询问是否自动安装 systemd service（常驻 daemon）
 
-**发送一次心跳测试**：
-
-```bash
-hb-agent heartbeat-once
-```
-
 **启动常驻 daemon**：
 
 ```bash
-hb-agent daemon
+export CLIENT_CONFIG=config/client.yaml
+uv run hb-daemon
 ```
 
-如果安装了 systemd service，daemon 会在后台自动运行，定时发送心跳并 flush 本地 spool。
+节点会在第一次成功发送心跳时自动注册。如果安装了 systemd service，daemon 会在后台自动运行，定时发送心跳并 flush 本地 spool。
 
 ### 4. 运行被监控的任务
 
-用 `hb-agent run` 包装任意命令，自动上报任务生命周期：
+用 `hb` 包装任意命令，自动上报任务生命周期：
 
 ```bash
-hb-agent run --name train_a --timeout 7200 -- python train.py --epochs 20
-hb-agent run --name backup --timeout 1800 -- bash backup.sh
+hb --name train_a --timeout 7200 -- python train.py --epochs 20
+hb --name backup --timeout 1800 -- bash backup.sh
 ```
 
 流程：
@@ -143,13 +138,20 @@ hb-agent run --name backup --timeout 1800 -- bash backup.sh
 
 ### 移除服务
 
-如需卸载 systemd 服务，运行：
+如需卸载本地安装内容，运行：
 
 ```bash
 ./remove-service.sh
 ```
 
-按提示选择是否移除 server service 和 client service。
+脚本会按提示选择性清理这些内容：
+
+1. `hb-server.service` / `hb-client.service` / `hb-client.timer`
+2. `~/.local/bin/hb` 启动器
+3. `.venv` 中的 editable 安装包
+4. `logs/`、`spool/`、`monitor.db`
+
+你的配置文件会被保留，不在清理范围内。
 
 ---
 
