@@ -22,8 +22,8 @@ spool/
 uv.lock
 
 # Configuration (contains credentials; use .example files for templates)
-config/*.yaml
-config/*.yml
+client.yaml
+server.yaml
 .env
 
 # IDE
