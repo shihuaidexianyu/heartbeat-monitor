@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 
 class SMTPConfig(BaseModel):
+    enabled: bool = True
     host: str
     port: int = 587
     username: str
@@ -27,7 +28,6 @@ class NotificationsConfig(BaseModel):
 
 class RegistrationConfig(BaseModel):
     enrollment_token: str = ""
-    issue_per_node_token: bool = True
 
 
 class MonitorConfig(BaseModel):

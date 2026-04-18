@@ -50,9 +50,6 @@ def send_heartbeat() -> tuple[bool, dict]:
         resp.raise_for_status()
         data = resp.json()
         logger.info("heartbeat sent successfully: %s", data.get("message"))
-        node_token = data.get("node_token")
-        if node_token:
-            logger.info("server issued new node_token: %s... (save to config)", node_token[:8])
         return True, data
     except requests.Timeout:
         logger.error("heartbeat request timeout")

@@ -168,14 +168,14 @@ def test_register_endpoint():
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
-    assert "node_token" in data
     assert data["server_id"] == "lab-server-new"
+    # unified token: no node_token returned
+    assert "node_token" not in data
 
-    # use the returned token for heartbeat
-    token = data["node_token"]
+    # use enrollment token for heartbeat
     hb_resp = client.post("/heartbeat", json={
         "server_id": "lab-server-new",
-        "token": token,
+        "token": "enroll-test",
     })
     assert hb_resp.status_code == 200
 

@@ -10,7 +10,7 @@
 - **状态机驱动**：`UP` / `SUSPECT` / `DOWN` / `MAINTENANCE` 四态转换
 - **任务监控**：通过 `hb-agent run` 包装任务，自动上报开始/结束/退出码/日志摘要
 - **统一通知**：飞书 Webhook + SMTP 邮件双通道，支持去重和限流
-- **两阶段注册**：enrollment token 用于首次注册，后续使用独立 node token
+- **统一 Token 认证**：所有节点共享一个 enrollment token，无需两阶段注册和独立 node token
 - **断网缓存**：Client 在 server 不可达时本地缓存事件，恢复后自动补发
 - **轻量无依赖**：Python + SQLite + FastAPI，不依赖外部监控平台
 
@@ -93,12 +93,7 @@ uv run python -m server.main
 
 Server 将监听配置的端口（默认 `0.0.0.0:9999`），并每 30 秒执行一次主动探测和状态评估。
 
-> **Token 初始化**：`setup-server.sh` 会自动生成一个 **enrollment token** 写入 `config/server.yaml`。新节点首次注册时使用这个 token，Server 会为其签发独立的 **node token**。
->
-> 安全机制：
-> - `POST /register` — 使用 enrollment token 注册，返回独立的 node token
-> - `POST /heartbeat` — 日常心跳使用 node token
-> - 心跳自动注册 fallback — 未知节点携带 enrollment token 发第一次心跳时，Server 也会自动登记并签发 node token（在响应中返回）
+> **Token 初始化**：`setup-server.sh` 会自动生成一个 **enrollment token** 写入 `config/server.yaml`。Client 端在 `config/client.yaml` 中配置同样的 token，所有请求（心跳、任务上报）均使用此统一 token 鉴权。
 
 ### 3. 配置并运行 Client
 
@@ -113,15 +108,6 @@ Server 将监听配置的端口（默认 `0.0.0.0:9999`），并每 30 秒执行
 1. 自动运行 `uv sync`
 2. 交互式生成 `config/client.yaml`
 3. 询问是否自动安装 systemd service（常驻 daemon）
-
-**注册节点**（获取独立 node token）：
-
-```bash
-export CLIENT_CONFIG=config/client.yaml
-hb-agent register
-```
-
-把返回的 `node_token` 填入 `config/client.yaml` 的 `server.node_token` 字段。
 
 **发送一次心跳测试**：
 
@@ -173,7 +159,7 @@ hb-agent run --name backup --timeout 1800 -- bash backup.sh
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/register` | 节点注册（enrollment token → node token） |
+| `POST` | `/register` | 节点注册（向后兼容，统一使用 enrollment token） |
 | `POST` | `/heartbeat` | Client 上报心跳 |
 | `GET`  | `/health` | 监控中心自身健康状态 |
 | `GET`  | `/nodes` | 查询所有节点当前状态 |
@@ -210,7 +196,6 @@ curl -X POST http://127.0.0.1:9999/register \
 ```json
 {
   "ok": true,
-  "node_token": "issued-node-token",
   "server_id": "lab-node-01",
   "heartbeat_interval_sec": 30
 }
@@ -223,7 +208,7 @@ curl -X POST http://127.0.0.1:9999/heartbeat \
   -H "Content-Type: application/json" \
   -d '{
     "server_id": "lab-node-01",
-    "token": "issued-node-token",
+    "token": "bootstrap-secret",
     "hostname": "gpu-a",
     "timestamp": 1776384000,
     "ip": "10.0.0.12",
@@ -242,7 +227,7 @@ curl -X POST http://127.0.0.1:9999/task-runs/start \
     "task_name": "train_a",
     "command": ["python", "train.py"],
     "timeout_sec": 7200,
-    "token": "issued-node-token"
+    "token": "bootstrap-secret"
   }'
 ```
 
@@ -267,10 +252,10 @@ monitor:
 
 registration:
   enrollment_token: "your-secret-token"
-  issue_per_node_token: true
 
 notifications:
   email:
+    enabled: true
     host: "smtp.example.com"
     port: 465
     username: "xxx"
@@ -280,7 +265,7 @@ notifications:
       - "me@example.com"
     use_tls: true
   feishu:
-    enabled: true
+    enabled: false
     webhook_url: "..."
     secret: "..."
 
@@ -296,7 +281,6 @@ server:
   base_url: "http://10.0.0.1:9999"
   server_id: "lab-node-01"
   enrollment_token: "your-secret-token"
-  node_token: null        # 注册后填入 Server 返回的 node_token
   heartbeat_interval_sec: 30
 
 agent:

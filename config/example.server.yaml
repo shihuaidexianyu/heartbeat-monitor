@@ -12,11 +12,9 @@ monitor:
   default_probe_fail_threshold: 3
 
 registration:
-  # 所有新节点首次注册时使用的统一凭证
+  # 所有节点统一使用的凭证
   # 安装后务必修改为一个安全的随机字符串
   enrollment_token: "CHANGE_ME_TO_A_RANDOM_STRING"
-  # 是否为每个节点签发独立的 node_token（推荐开启）
-  issue_per_node_token: true
 
 notifications:
   email:

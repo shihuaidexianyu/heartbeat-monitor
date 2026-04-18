@@ -43,7 +43,7 @@ def run_task(
     stdout_path = os.path.join(log_dir, f"{task_name}_{run_id}.out")
     stderr_path = os.path.join(log_dir, f"{task_name}_{run_id}.err")
 
-    token = cfg.server.node_token or cfg.server.enrollment_token
+    token = cfg.server.enrollment_token
 
     # 1. report start
     start_payload = {

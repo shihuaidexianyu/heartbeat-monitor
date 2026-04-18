@@ -48,8 +48,7 @@ def main():
             resp = requests.post(url, json=payload, timeout=10)
             resp.raise_for_status()
             data = resp.json()
-            print(f"Registered successfully. node_token={data.get('node_token')}")
-            print(f"Please save node_token to your client config.")
+            print(f"Registered successfully. server_id={data.get('server_id')}")
             sys.exit(0)
         except Exception as e:
             print(f"Registration failed: {e}", file=sys.stderr)

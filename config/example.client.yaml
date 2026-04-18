@@ -3,10 +3,8 @@ server:
   base_url: "http://127.0.0.1:9999"
   # 本机的唯一标识名
   server_id: "lab-node-01"
-  # 首次注册时使用的统一凭证，与 server.yaml 中的 enrollment_token 一致
+  # 与 server.yaml 中的 registration.enrollment_token 一致
   enrollment_token: "CHANGE_ME_TO_MATCH_SERVER"
-  # 注册后 Server 会返回 node_token，填入此处后 enrollment_token 不再使用
-  node_token: null
   heartbeat_interval_sec: 30
 
 agent:

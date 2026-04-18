@@ -18,7 +18,8 @@ class NotificationService:
 
     def __init__(self, db: Session):
         self.db = db
-        self._email = EmailNotifier(config.notifications.email) if config.notifications.email else None
+        email_cfg = config.notifications.email
+        self._email = EmailNotifier(email_cfg) if email_cfg and email_cfg.enabled else None
         self._feishu = FeishuNotifier(config.notifications.feishu)
 
     def _should_notify_node(self, node: Node, old_status: str, new_status: str) -> dict:

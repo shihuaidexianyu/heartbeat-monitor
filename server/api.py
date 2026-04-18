@@ -32,7 +32,6 @@ class HeartbeatPayload(BaseModel):
 class HeartbeatResponse(BaseModel):
     ok: bool
     message: str
-    node_token: Optional[str] = None
 
 
 class RegisterPayload(BaseModel):
@@ -44,7 +43,6 @@ class RegisterPayload(BaseModel):
 
 class RegisterResponse(BaseModel):
     ok: bool
-    node_token: str
     server_id: str
     heartbeat_interval_sec: int
 
@@ -57,9 +55,9 @@ def register(payload: RegisterPayload, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="invalid enrollment token")
 
     node = db.query(Node).filter(Node.server_id == payload.server_id).first()
-    node_token = secrets.token_urlsafe(32)
+    token = server_config.registration.enrollment_token or server_config.default_token
     if node:
-        node.token_hash = node_token
+        node.token_hash = token
         if payload.hostname:
             node.hostname = payload.hostname
         if payload.ip:
@@ -69,7 +67,7 @@ def register(payload: RegisterPayload, db: Session = Depends(get_db)):
         node = Node(
             server_id=payload.server_id,
             hostname=payload.hostname,
-            token_hash=node_token,
+            token_hash=token,
             probe_host=payload.ip or payload.hostname or "127.0.0.1",
             probe_port=22,
             status="UP",
@@ -87,7 +85,6 @@ def register(payload: RegisterPayload, db: Session = Depends(get_db)):
     logger.info("node registered: %s", payload.server_id)
     return RegisterResponse(
         ok=True,
-        node_token=node_token,
         server_id=payload.server_id,
         heartbeat_interval_sec=node.expected_interval_sec,
     )
@@ -100,16 +97,10 @@ def heartbeat(payload: HeartbeatPayload, db: Session = Depends(get_db)):
         # fallback auto-register with enrollment_token
         enrollment = server_config.registration.enrollment_token or server_config.default_token
         if enrollment and payload.token == enrollment:
-            if server_config.registration.issue_per_node_token:
-                node_token = secrets.token_urlsafe(32)
-                token_hash = node_token
-            else:
-                node_token = None
-                token_hash = payload.token
             node = Node(
                 server_id=payload.server_id,
                 hostname=payload.hostname,
-                token_hash=token_hash,
+                token_hash=payload.token,
                 probe_host=payload.ip or payload.hostname or "127.0.0.1",
                 probe_port=22,
                 status="UP",
@@ -124,11 +115,7 @@ def heartbeat(payload: HeartbeatPayload, db: Session = Depends(get_db)):
             ))
             db.commit()
             logger.info("auto-registered new node: %s", payload.server_id)
-            return HeartbeatResponse(
-                ok=True,
-                message="heartbeat received and node registered",
-                node_token=node_token,
-            )
+            return HeartbeatResponse(ok=True, message="heartbeat received and node registered")
 
         logger.warning("heartbeat rejected: unknown server_id %s", payload.server_id)
         db.add(Event(
@@ -139,7 +126,10 @@ def heartbeat(payload: HeartbeatPayload, db: Session = Depends(get_db)):
         db.commit()
         raise HTTPException(status_code=404, detail="server_id not found")
 
-    if node.token_hash != payload.token:
+    # 统一 token：支持 node_token（如果存在）或 enrollment_token
+    expected_token = node.token_hash
+    enrollment = server_config.registration.enrollment_token or server_config.default_token
+    if payload.token != expected_token and payload.token != enrollment:
         logger.warning("heartbeat rejected: invalid token for %s", payload.server_id)
         db.add(Event(
             server_id=payload.server_id,

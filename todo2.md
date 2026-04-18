@@ -526,7 +526,6 @@ monitor:
 
 registration:
   enrollment_token: "bootstrap-secret"
-  issue_per_node_token: true
 
 notifications:
   email:
