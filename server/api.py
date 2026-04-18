@@ -145,6 +145,8 @@ def heartbeat(payload: HeartbeatPayload, db: Session = Depends(get_db)):
     node.last_payload_json = json.dumps(payload.model_dump(exclude={"token"}), ensure_ascii=False)
     if payload.hostname:
         node.hostname = payload.hostname
+    if payload.ip:
+        node.probe_host = payload.ip
 
     # If node was DOWN or SUSPECT, evaluate recovery immediately
     if old_status in ("DOWN", "SUSPECT"):
